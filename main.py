@@ -287,17 +287,32 @@ def sync_to_keep(key: str = Query(..., description="URL kalender EMAS full"), ti
 def create_keep_note(payload: KeepNewRequest):
     try:
         keep = load_keep_client()
+    except RuntimeError as auth_exc:
+        raise HTTPException(status_code=500, detail=f"Google Keep auth gagal: {str(auth_exc)}")
+    except Exception as auth_exc:
+        raise HTTPException(status_code=500, detail=f"Google Keep login error: {str(auth_exc)}")
+    
+    try:
         gnote = keep.createNote(payload.title, payload.content)
+    except Exception as note_exc:
+        raise HTTPException(status_code=500, detail=f"Gagal membuat note: {str(note_exc)}")
+    
+    try:
         gnote.collaborators.add(payload.colaborator_email)
+    except Exception as collab_exc:
+        raise HTTPException(status_code=500, detail=f"Gagal menambahkan collaborator: {str(collab_exc)}")
+    
+    try:
         keep.sync()
-
+    except Exception as sync_exc:
+        raise HTTPException(status_code=500, detail=f"Gagal sync ke Google Keep: {str(sync_exc)}")
+    
+    try:
         return {
             "status": "ok",
             "action": "created",
             "note_title": payload.title,
             "colaborator_email": payload.colaborator_email,
         }
-    except HTTPException as exc:
-        raise HTTPException(status_code=500, detail=exc.detail)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=f"Response build error: {str(exc)}")
