@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 import gkeepapi
 
@@ -219,6 +220,12 @@ def find_note_by_title(keep: gkeepapi.Keep, title: str):
     matches = keep.find(func=lambda node: not node.deleted and getattr(node, "title", "") == title)
     return next(iter(matches), None)
 
+
+class KeepNewRequest(BaseModel):
+    title: str = Field(..., description="Judul note Google Keep")
+    content: str = Field(..., description="Isi note Google Keep")
+    colaborator_email: str = Field(..., description="Email collaborator untuk note")
+
 @app.get("/")
 def read_root():
     return {"status": "online", "guide": "Gunakan /tugas?key=URL_FULL_EMAS"}
@@ -269,6 +276,26 @@ def sync_to_keep(key: str = Query(..., description="URL kalender EMAS full"), ti
             "action": action,
             "added": added_count,
             "total_tasks": len(checklist_lines),
+        }
+    except HTTPException as exc:
+        raise HTTPException(status_code=500, detail=exc.detail)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/keep/new")
+def create_keep_note(payload: KeepNewRequest):
+    try:
+        keep = load_keep_client()
+        gnote = keep.createNote(payload.title, payload.content)
+        gnote.collaborators.add(payload.colaborator_email)
+        keep.sync()
+
+        return {
+            "status": "ok",
+            "action": "created",
+            "note_title": payload.title,
+            "colaborator_email": payload.colaborator_email,
         }
     except HTTPException as exc:
         raise HTTPException(status_code=500, detail=exc.detail)

@@ -37,8 +37,28 @@ API FastAPI untuk mengambil tugas EMAS, mengubahnya menjadi checklist plaintext,
    ```bash
    GET http://localhost:8000/keep?key=https://emas3.ui.ac.id/calendar/export_execute.php?userid=...&authtoken=...&preset_what=all&preset_time=recentupcoming&title=Tugas%20EMAS%20UI%20Joshua
    ```
+6. Mengambil Tugas:
+   ```bash
+   GET http://localhost:8000/tugas?key=https://emas3.ui.ac.id/calendar/export_execute.php?userid=...&authtoken=...&preset_what=all&preset_time=recentupcoming
+   ``` 
+7. Hasil sukses mengembalikan JSON `200 OK` dengan jumlah item yang ditambahkan.
 
-6. Hasil sukses mengembalikan JSON `200 OK` dengan jumlah item yang ditambahkan.
+## Route Manual Google Keep
+
+Kalau ingin membuat note baru tanpa alur EMAS, pakai:
+
+```bash
+POST http://localhost:8000/keep/new
+Content-Type: application/json
+
+{
+   "title": "Catatan Baru",
+   "content": "Isi note di sini",
+   "colaborator_email": "kolaborator@example.com"
+}
+```
+
+Route ini akan membuat note baru lalu menambahkan collaborator dengan `gnote.collaborators.add(email)`.
 
 # 📌 Format Note Google Keep
 
