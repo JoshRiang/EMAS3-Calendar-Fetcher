@@ -35,12 +35,7 @@ API FastAPI untuk mengambil tugas EMAS, mengubahnya menjadi checklist plaintext,
 5. Sinkronkan ke Google Keep:
 
    ```bash
-   POST http://localhost:8000/keep
-   Content-Type: application/json
-
-   {
-     "key": "https://emas3.ui.ac.id/calendar/export_execute.php?userid=...&authtoken=...&preset_what=all&preset_time=recentupcoming"
-   }
+   GET http://localhost:8000/keep?key=https://emas3.ui.ac.id/calendar/export_execute.php?userid=...&authtoken=...&preset_what=all&preset_time=recentupcoming&title=Tugas%20EMAS%20UI%20Joshua
    ```
 
 6. Hasil sukses mengembalikan JSON `200 OK` dengan jumlah item yang ditambahkan.

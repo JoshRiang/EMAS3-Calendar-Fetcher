@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 
 import gkeepapi
 
@@ -20,18 +19,19 @@ SOURCE_API_BASE_URL = os.getenv(
     "SOURCE_API_BASE_URL",
     "https://emas3-calendar-fetcher.onrender.com/tugas",
 )
+SOURCE_API_TIMEOUT_SECONDS = int(os.getenv("SOURCE_API_TIMEOUT_SECONDS", "60"))
+SOURCE_API_RETRY_COUNT = int(os.getenv("SOURCE_API_RETRY_COUNT", "2"))
 
 CATEGORY_MAP = {
-    "ENCE604018": "Sistem Operasi",
-    "ENCE604015": "Sistem Embedded",
-    "ENCE604016": "DMJK",
-    "ENCE604017": "Matematika Lanjut",
+"ENFE600003": "Dasar Analitik Data",
+  "ENCE604014": "DMJK",
+  "ENCE604015": "Komputasi Numerik",
+  "ENCE604013": "Matematika Lanjut",
+  "ENCE606033": "Profesionalisme dan Etika",
+  "ENCE604016": "Sistem Basis Data",
+  "ENCE604017": "Sistem Embedded",
+  "ENCE604018": "Sistem Operasi"
 }
-
-
-class KeepSyncRequest(BaseModel):
-    key: str = Field(..., description="URL kalender EMAS full")
-    title: str = Field(default=KEEP_NOTE_TITLE, description="Judul note Google Keep")
 
 # Tambahkan CORS biar bisa di-hit dari Svelte/React kamu nanti
 app.add_middleware(
@@ -98,18 +98,27 @@ def fetch_and_filter(url: str):
 def fetch_tasks_from_source_api(calendar_key: str):
     source_url = f"{SOURCE_API_BASE_URL.rstrip('/')}?key={urllib.parse.quote(calendar_key, safe='')}"
 
+    last_error = None
+    for attempt in range(SOURCE_API_RETRY_COUNT + 1):
+        try:
+            req = urllib.request.Request(source_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=SOURCE_API_TIMEOUT_SECONDS) as response:
+                raw_payload = response.read().decode("utf-8")
+            payload = json.loads(raw_payload)
+            if not isinstance(payload, list):
+                raise RuntimeError("Format respons source API tidak valid")
+            return payload
+        except Exception as exc:
+            last_error = exc
+            if attempt < SOURCE_API_RETRY_COUNT:
+                continue
+
     try:
-        req = urllib.request.Request(source_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=20) as response:
-            raw_payload = response.read().decode("utf-8")
-        payload = json.loads(raw_payload)
-    except Exception as exc:
-        raise RuntimeError(f"Gagal mengambil data dari source API: {exc}") from exc
-
-    if not isinstance(payload, list):
-        raise RuntimeError("Format respons source API tidak valid")
-
-    return payload
+        return fetch_and_filter(calendar_key)
+    except Exception as fallback_exc:
+        raise RuntimeError(
+            f"Gagal mengambil data dari source API ({last_error}); fallback EMAS langsung juga gagal: {fallback_exc}"
+        ) from fallback_exc
 
 
 def clean_summary(summary: str) -> str:
@@ -208,7 +217,7 @@ def load_keep_client() -> gkeepapi.Keep:
 
 def find_note_by_title(keep: gkeepapi.Keep, title: str):
     matches = keep.find(func=lambda node: not node.deleted and getattr(node, "title", "") == title)
-    return matches[0] if matches else None
+    return next(iter(matches), None)
 
 @app.get("/")
 def read_root():
@@ -224,26 +233,26 @@ def get_tugas(key: str = Query(..., description="URL Export EMAS UI")):
     return data
 
 
-@app.post("/keep")
-def sync_to_keep(payload: KeepSyncRequest):
+@app.get("/keep")
+def sync_to_keep(key: str = Query(..., description="URL kalender EMAS full"), title: str = Query(default=KEEP_NOTE_TITLE, description="Judul note Google Keep")):
     try:
-        tasks = fetch_tasks_from_source_api(payload.key)
+        tasks = fetch_tasks_from_source_api(key)
         checklist_lines = [build_keep_line(task) for task in tasks]
 
         if not checklist_lines:
             return {
                 "status": "ok",
-                "note_title": payload.title,
+                "note_title": title,
                 "added": 0,
                 "total_tasks": 0,
                 "message": "Tidak ada tugas baru untuk disinkronkan",
             }
 
         keep = load_keep_client()
-        existing_note = find_note_by_title(keep, payload.title)
+        existing_note = find_note_by_title(keep, title)
 
         if existing_note is None:
-            keep.createNote(payload.title, "\n".join(checklist_lines))
+            keep.createNote(title, "\n".join(checklist_lines))
             action = "created"
             added_count = len(checklist_lines)
         else:
@@ -256,7 +265,7 @@ def sync_to_keep(payload: KeepSyncRequest):
 
         return {
             "status": "ok",
-            "note_title": payload.title,
+            "note_title": title,
             "action": action,
             "added": added_count,
             "total_tasks": len(checklist_lines),
